@@ -53,7 +53,8 @@ class HtmlWebpackPlugin {
       chunksSortMode: 'auto',
       meta: {},
       title: 'Webpack App',
-      xhtml: false
+      xhtml: false,
+      multihtmlCache: false
     }, options);
   }
 
@@ -61,6 +62,11 @@ class HtmlWebpackPlugin {
     const self = this;
     let isCompilationCached = false;
     let compilationPromise;
+    // cache childCompilation
+    var childCompilation = null;
+    // when done, set true;
+    // when childCompilation's fileDependencies had changed, set false
+    var isValidChildCompilation = false;
 
     this.options.template = this.getFullTemplatePath(this.options.template, compiler.context);
 
@@ -85,8 +91,25 @@ class HtmlWebpackPlugin {
       });
     }
 
+    (compiler.hooks ? compiler.hooks.done.tapAsync.bind(compiler.hooks.done, 'HtmlWebpackPlugin') : compiler.plugin.bind(compiler, 'done'))((stats, callback) => {
+      var compilation = stats.compilation;
+      if (childCompilation) {
+        // webpack watch
+        childCompilation.fileDependencies.forEach(function (fileName) {
+          if (compilation.fileDependencies.indexOf(fileName) === -1) {
+            compilation.fileDependencies.push(fileName);
+          }
+        });
+      }
+      isValidChildCompilation = true;
+      callback();
+    });
+
     // Backwards compatible version of: compiler.hooks.make.tapAsync()
     (compiler.hooks ? compiler.hooks.make.tapAsync.bind(compiler.hooks.make, 'HtmlWebpackPlugin') : compiler.plugin.bind(compiler, 'make'))((compilation, callback) => {
+      if (self.options.multihtmlCache && isValidChildCompilation) {
+        return callback();
+      }
       // Compile the template (queued)
       compilationPromise = childCompiler.compileTemplate(self.options.template, compiler.context, self.options.filename, compilation)
         .catch(err => {
@@ -108,6 +131,9 @@ class HtmlWebpackPlugin {
 
     // Backwards compatible version of: compiler.plugin.emit.tapAsync()
     (compiler.hooks ? compiler.hooks.emit.tapAsync.bind(compiler.hooks.emit, 'HtmlWebpackPlugin') : compiler.plugin.bind(compiler, 'emit'))((compilation, callback) => {
+      if (self.options.multihtmlCache && isValidChildCompilation) {
+        return callback();
+      }
       const applyPluginsAsyncWaterfall = self.applyPluginsAsyncWaterfall(compilation);
       const allChunks = getAllChunks(compilation).chunks;
       // Filter chunks (options.chunks and options.excludeCHunks)

@@ -14,6 +14,26 @@ const chunkSorter = require('./lib/chunksorter.js');
 const fsStatAsync = promisify(fs.stat);
 const fsReadFileAsync = promisify(fs.readFile);
 
+let hashToChunksMap = {};
+
+// Get chunks info as json
+// Note: we're excluding stuff that we don't need to improve toJson serialization speed.
+const chunkOnlyConfig = {
+  assets: false,
+  cached: false,
+  children: false,
+  chunks: true,
+  chunkModules: false,
+  chunkOrigins: false,
+  errorDetails: false,
+  hash: false,
+  modules: false,
+  reasons: false,
+  source: false,
+  timings: false,
+  version: false
+};
+
 class HtmlWebpackPlugin {
   constructor (options) {
     // Default options
@@ -89,24 +109,7 @@ class HtmlWebpackPlugin {
     // Backwards compatible version of: compiler.plugin.emit.tapAsync()
     (compiler.hooks ? compiler.hooks.emit.tapAsync.bind(compiler.hooks.emit, 'HtmlWebpackPlugin') : compiler.plugin.bind(compiler, 'emit'))((compilation, callback) => {
       const applyPluginsAsyncWaterfall = self.applyPluginsAsyncWaterfall(compilation);
-      // Get chunks info as json
-      // Note: we're excluding stuff that we don't need to improve toJson serialization speed.
-      const chunkOnlyConfig = {
-        assets: false,
-        cached: false,
-        children: false,
-        chunks: true,
-        chunkModules: false,
-        chunkOrigins: false,
-        errorDetails: false,
-        hash: false,
-        modules: false,
-        reasons: false,
-        source: false,
-        timings: false,
-        version: false
-      };
-      const allChunks = compilation.getStats().toJson(chunkOnlyConfig).chunks;
+      const allChunks = getAllChunks(compilation).chunks;
       // Filter chunks (options.chunks and options.excludeCHunks)
       let chunks = self.filterChunks(allChunks, self.options.chunks, self.options.excludeChunks);
       // Sort chunks
@@ -717,7 +720,7 @@ function trainCaseToCamelCase (word) {
 function templateParametersGenerator (compilation, assets, options) {
   return {
     compilation: compilation,
-    webpack: compilation.getStats().toJson(),
+    webpack: getAllChunks(compilation),
     webpackConfig: compilation.options,
     htmlWebpackPlugin: {
       files: assets,
@@ -725,5 +728,17 @@ function templateParametersGenerator (compilation, assets, options) {
     }
   };
 }
+
+/**
+ * Get all chunks from compilation, 
+ */
+function getAllChunks (compilation) {
+  var allChunks = hashToChunksMap[compilation.hash];
+  if (!allChunks) {
+    allChunks = compilation.getStats().toJson(chunkOnlyConfig);
+    hashToChunksMap[compilation.hash] = allChunks;
+  }
+  return allChunks;
+};
 
 module.exports = HtmlWebpackPlugin;
